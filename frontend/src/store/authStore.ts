@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User, LoginRequest, RegisterRequest } from '../types';
 import { authApi } from '../services/api';
+import { useChatStore } from './chatStore';
 
 interface AuthState {
   user: User | null;
@@ -67,6 +68,8 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         localStorage.removeItem('token');
+        // Reset chat session when logging out
+        useChatStore.getState().resetSession();
         set({
           user: null,
           token: null,

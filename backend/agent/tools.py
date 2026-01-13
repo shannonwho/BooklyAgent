@@ -14,17 +14,17 @@ from data.models import (
 TOOLS = [
     {
         "name": "get_order_status",
-        "description": "Retrieves the current status of a customer's order including items, shipping info, and tracking. Use this when a customer asks about their order status, shipping updates, or delivery information. Requires either order_id or customer email.",
+        "description": "Retrieves the current status of a customer's order including items, shipping info, and tracking. Use this when a customer asks about their order status, shipping updates, or delivery information. If an order number was mentioned earlier in the conversation, use that - do NOT ask the customer for it again.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "order_id": {
                     "type": "string",
-                    "description": "The order number (e.g., 'ORD-2024-00001')"
+                    "description": "The order number (e.g., 'ORD-2024-00001'). Use the order number from earlier in the conversation if already provided."
                 },
                 "email": {
                     "type": "string",
-                    "description": "Customer's email address for verification"
+                    "description": "Customer's email address for verification (will be auto-filled if customer is logged in)"
                 }
             },
             "required": []
@@ -60,13 +60,13 @@ TOOLS = [
     },
     {
         "name": "initiate_return",
-        "description": "Starts the return process for an order. IMPORTANT: Only use after confirming with the customer that they want to proceed. Checks if order is eligible for return (within 30 days, not already returned).",
+        "description": "Starts the return process for an order. IMPORTANT: Only use after confirming with the customer that they want to proceed. Checks if order is eligible for return (within 30 days, not already returned). If an order number was mentioned earlier in the conversation, use that order_id - do NOT ask the customer for it again.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "order_id": {
                     "type": "string",
-                    "description": "The order number to return"
+                    "description": "The order number to return (e.g., 'ORD-2024-00001'). Use the order number from earlier in the conversation if the customer already provided it."
                 },
                 "reason": {
                     "type": "string",
@@ -75,10 +75,10 @@ TOOLS = [
                 },
                 "email": {
                     "type": "string",
-                    "description": "Customer email for verification"
+                    "description": "Customer email for verification (will be auto-filled if customer is logged in)"
                 }
             },
-            "required": ["order_id", "reason", "email"]
+            "required": ["reason"]
         }
     },
     {
@@ -368,9 +368,54 @@ async def _initiate_return(params: dict, db: AsyncSession) -> dict:
     if order.return_requested:
         return {"error": "A return has already been requested for this order"}
 
-    # Check return window (30 days)
+    # Check if order is eligible for return based on status
     if order.status != OrderStatus.DELIVERED:
-        return {"error": f"Order status is '{order.status.value}'. Only delivered orders can be returned."}
+        status_messages = {
+            OrderStatus.PENDING: {
+                "message": "This order is still being processed and hasn't shipped yet.",
+                "suggestion": "Since the order hasn't shipped, we can cancel it instead of processing a return. Would you like me to create a support ticket to request a cancellation? This is usually faster than waiting for delivery and then returning.",
+                "can_cancel": True,
+            },
+            OrderStatus.PROCESSING: {
+                "message": "This order is currently being prepared for shipment.",
+                "suggestion": "The order is being prepared but hasn't shipped yet. I can create a support ticket to request a cancellation before it ships. This would be faster than waiting for delivery to process a return.",
+                "can_cancel": True,
+            },
+            OrderStatus.SHIPPED: {
+                "message": f"This order has been shipped and is on its way to you.",
+                "suggestion": f"The order is in transit{' and expected to arrive by ' + order.estimated_delivery.strftime('%B %d, %Y') if order.estimated_delivery else ''}. Once delivered, you'll have 30 days to initiate a return. Would you like me to create a support ticket so our team can assist you as soon as it arrives?",
+                "can_cancel": False,
+            },
+            OrderStatus.RETURNED: {
+                "message": "This order has already been returned.",
+                "suggestion": "If you have additional concerns about this order, I can create a support ticket for our team to assist you.",
+                "can_cancel": False,
+            },
+            OrderStatus.CANCELLED: {
+                "message": "This order was cancelled.",
+                "suggestion": "If you need assistance with a refund or have questions about this cancelled order, I can create a support ticket.",
+                "can_cancel": False,
+            },
+        }
+
+        status_info = status_messages.get(order.status, {
+            "message": f"Order status is '{order.status.value}'.",
+            "suggestion": "I can create a support ticket for our team to assist you with this order.",
+            "can_cancel": False,
+        })
+
+        return {
+            "cannot_return": True,
+            "order_number": order.order_number,
+            "current_status": order.status.value,
+            "message": status_info["message"],
+            "suggestion": status_info["suggestion"],
+            "can_cancel_instead": status_info["can_cancel"],
+            "estimated_delivery": order.estimated_delivery.strftime("%B %d, %Y") if order.estimated_delivery else None,
+            "tracking_number": order.tracking_number,
+            "action_recommended": "create_support_ticket",
+            "support_ticket_context": f"Customer requested return for order {order.order_number} (status: {order.status.value}). Reason: {reason}",
+        }
 
     if order.delivered_date:
         days_since_delivery = (datetime.utcnow() - order.delivered_date).days

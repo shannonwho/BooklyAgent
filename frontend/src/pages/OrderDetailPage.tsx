@@ -39,7 +39,8 @@ export default function OrderDetailPage() {
   const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const { setIsOpen: setChatOpen, addMessage } = useChatStore();
+  const { openChat, sendMessage } = useChatStore();
+  const { user } = useAuthStore();
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -62,13 +63,13 @@ export default function OrderDetailPage() {
   }, [id, isAuthenticated, navigate]);
 
   const handleGetHelp = () => {
+    openChat();
     if (order) {
-      addMessage({
-        role: 'user',
-        content: `I need help with order ${order.order_number}`,
-      });
+      // Small delay to ensure chat is open and connected before sending
+      setTimeout(() => {
+        sendMessage(`I need help with order ${order.order_number}`, user?.email);
+      }, 500);
     }
-    setChatOpen(true);
   };
 
   if (loading) {

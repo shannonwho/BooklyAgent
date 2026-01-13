@@ -13,11 +13,12 @@ router = APIRouter()
 
 
 class ConnectionManager:
-    """Manages WebSocket connections."""
+    """Manages WebSocket connections with user-specific sessions."""
 
     def __init__(self):
         self.active_connections: dict[str, WebSocket] = {}
         self.agents: dict[str, AgentController] = {}
+        self.session_users: dict[str, Optional[str]] = {}  # Track user email per session
 
     async def connect(self, websocket: WebSocket, session_id: str):
         """Accept a new WebSocket connection."""
@@ -26,6 +27,7 @@ class ConnectionManager:
 
         # Create agent for this session (without db session - will be created per message)
         self.agents[session_id] = AgentController(session_id)
+        self.session_users[session_id] = None
 
     def disconnect(self, session_id: str):
         """Remove a disconnected client."""
@@ -33,6 +35,8 @@ class ConnectionManager:
             del self.active_connections[session_id]
         if session_id in self.agents:
             del self.agents[session_id]
+        if session_id in self.session_users:
+            del self.session_users[session_id]
 
     async def send_message(self, session_id: str, message: dict):
         """Send a message to a specific client."""
@@ -49,6 +53,23 @@ class ConnectionManager:
     def get_agent(self, session_id: str) -> Optional[AgentController]:
         """Get the agent for a session."""
         return self.agents.get(session_id)
+
+    def set_session_user(self, session_id: str, user_email: Optional[str]):
+        """Set or update the user for a session. Resets agent if user changed."""
+        current_user = self.session_users.get(session_id)
+
+        # If user changed, reset the agent's conversation
+        if current_user is not None and user_email != current_user:
+            if session_id in self.agents:
+                self.agents[session_id].reset_conversation()
+
+        self.session_users[session_id] = user_email
+        if session_id in self.agents:
+            self.agents[session_id].set_user_context(user_email)
+
+    def get_session_user(self, session_id: str) -> Optional[str]:
+        """Get the user email for a session."""
+        return self.session_users.get(session_id)
 
 
 manager = ConnectionManager()
@@ -82,6 +103,10 @@ async def websocket_endpoint(
                 if not user_message.strip():
                     continue
 
+                # Update session user (will reset conversation if user changed)
+                if user_email:
+                    manager.set_session_user(session_id, user_email)
+
                 # Get agent for this session
                 agent = manager.get_agent(session_id)
 
@@ -89,6 +114,8 @@ async def websocket_endpoint(
                     # Recreate agent if needed (without db session - will be created per message)
                     agent = AgentController(session_id)
                     manager.agents[session_id] = agent
+                    if user_email:
+                        agent.set_user_context(user_email)
 
                 # Process message with streaming
                 await manager.send_message(session_id, {
@@ -143,11 +170,9 @@ async def websocket_endpoint(
                 await manager.send_message(session_id, {"type": "pong"})
 
             elif message_type == "set_user":
-                # Update user context
+                # Update user context (will reset conversation if user changed)
                 user_email = data.get("user_email")
-                agent = manager.get_agent(session_id)
-                if agent:
-                    agent.set_user_context(user_email)
+                manager.set_session_user(session_id, user_email)
                 await manager.send_message(session_id, {
                     "type": "user_set",
                     "email": user_email,

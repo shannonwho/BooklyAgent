@@ -1,6 +1,32 @@
 version: '3.8'
 
 services:
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7.60.1
+    container_name: bookly-datadog-agent
+    environment:
+      DD_API_KEY: ${DD_API_KEY}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_APM_ENABLED: "true"
+      DD_APM_NON_LOCAL_TRAFFIC: "true"
+      # Enable OTLP ingestion
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: 0.0.0.0:4317
+      # Enable trace export to Datadog from OTLP
+      DD_OTLP_CONFIG_TRACES_ENABLED: "true"
+      DD_OTLP_CONFIG_METRICS_ENABLED: "true"
+      # Logging
+      DD_LOGS_ENABLED: "true"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
+      # Fix for macOS - disable some problematic features
+      DD_PROCESS_AGENT_ENABLED: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8126:8126"
+
   postgres:
     image: postgres:15-alpine
     container_name: bookly-postgres
@@ -26,13 +52,20 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bookly}:${POSTGRES_PASSWORD:-bookly_secret}@postgres:5432/${POSTGRES_DB:-bookly}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+      # Telemetry / Datadog (via Datadog Agent)
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Point OTLP exporter to Datadog Agent
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://datadog-agent:4318
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+      datadog-agent:
+        condition: service_started
     volumes:
       - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload

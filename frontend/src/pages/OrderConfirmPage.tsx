@@ -9,7 +9,7 @@ export default function OrderConfirmPage() {
   const { id } = useParams<{ id: string }>();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const { setIsOpen: setChatOpen } = useChatStore();
+  const { openChat } = useChatStore();
 
   useEffect(() => {
     async function fetchOrder() {
@@ -156,7 +156,7 @@ export default function OrderConfirmPage() {
               Our support team is here to assist you with any questions.
             </p>
             <button
-              onClick={() => setChatOpen(true)}
+              onClick={() => openChat()}
               className="text-sm text-primary-600 hover:text-primary-700 font-medium"
             >
               Chat with Support

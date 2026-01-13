@@ -29,12 +29,12 @@ export default function ChatWidget() {
     }
   }, [messages, isTyping]);
 
-  // Connect with user context when authenticated
+  // Connect with user context when authenticated or reconnect when user changes
   useEffect(() => {
-    if (isOpen && !isConnected) {
+    if (isOpen) {
       connect(isAuthenticated ? user?.email : undefined);
     }
-  }, [isOpen, isConnected, isAuthenticated, user?.email, connect]);
+  }, [isOpen, isAuthenticated, user?.email, connect]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -4,17 +4,30 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from data.database import init_db, AsyncSessionLocal
+from data.database import init_db, AsyncSessionLocal, engine
 from data.seed_books import seed_books
 from data.seed_users import seed_users
 from data.seed_orders import seed_orders, seed_policies
 
 from api import auth, books, cart, orders, profile, websocket
+from telemetry import init_telemetry
+from telemetry.config import instrument_app
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown events."""
+    # Initialize telemetry
+    environment = os.getenv("ENVIRONMENT", "development")
+    init_telemetry(
+        service_name="bookly-support-agent",
+        service_version="1.0.0",
+        environment=environment
+    )
+
+    # Instrument the FastAPI app with OpenTelemetry
+    instrument_app(app, engine=engine.sync_engine if hasattr(engine, 'sync_engine') else None)
+
     # Startup: Initialize database and seed data
     print("Initializing database...")
     await init_db()
