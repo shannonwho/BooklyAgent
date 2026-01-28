@@ -1,0 +1,30 @@
+# Cursor Rules for BooklyAgent
+
+## Architecture Diagrams
+
+**IMPORTANT**: All architecture diagrams, flowcharts, sequence diagrams, and system diagrams MUST be written in Mermaid format.
+
+### Rules:
+1. **Always use Mermaid syntax** for any diagrams in documentation files
+2. **Never use ASCII art** (┌─┐│└┘ characters) for architecture diagrams
+3. **Use appropriate Mermaid diagram types**:
+   - `flowchart` or `graph` for system architecture and component diagrams
+   - `sequenceDiagram` for interaction flows and API calls
+   - `classDiagram` for data models and relationships
+   - `stateDiagram` for state machines
+   - `erDiagram` for database schemas
+
+### Format:
+All Mermaid diagrams must be wrapped in markdown code blocks with the `mermaid` language identifier:
+
+```mermaid
+flowchart LR
+  A[Component A] --> B[Component B]
+```
+
+### Examples:
+- ✅ **Correct**: Use `flowchart`, `sequenceDiagram`, `classDiagram`, etc.
+- ❌ **Incorrect**: ASCII art boxes using ┌─┐│└┘ characters
+
+### Reference:
+See `docs/architecture/architecture_overview.md` for examples of proper Mermaid diagram usage.

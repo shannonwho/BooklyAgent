@@ -246,15 +246,33 @@ def generate_books(count: int = 500) -> list[dict]:
     return books
 
 
-async def seed_books(session, count: int = 500):
-    """Seed the database with books."""
+async def seed_books(session, count: int = 500, force: bool = False):
+    """Seed the database with books.
+    
+    Args:
+        session: Database session
+        count: Number of books to generate
+        force: If True, reseed even if books already exist
+    """
     from sqlalchemy import select
+    import os
+
+    # Check if we should force reseed (from environment variable)
+    force_reseed = force or os.getenv("FORCE_RESeed", "").lower() in ("true", "1", "yes")
 
     # Check if books already exist
-    result = await session.execute(select(Book).limit(1))
-    if result.scalar_one_or_none():
-        print("Books already seeded, skipping...")
-        return
+    if not force_reseed:
+        result = await session.execute(select(Book).limit(1))
+        if result.scalar_one_or_none():
+            print("Books already seeded, skipping...")
+            print("To force reseed, set FORCE_RESeed=true or use force=True")
+            return
+
+    if force_reseed:
+        print("Force reseeding enabled - clearing existing books...")
+        from sqlalchemy import delete
+        await session.execute(delete(Book))
+        await session.commit()
 
     print(f"Generating {count} books...")
     books_data = generate_books(count)

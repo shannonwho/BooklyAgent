@@ -163,3 +163,91 @@ export const GENRES = [
 ] as const;
 
 export type Genre = typeof GENRES[number];
+
+// Analytics types
+export interface DashboardMetrics {
+  total_conversations: number;
+  avg_csat_score: number | null;
+  resolution_rate: number;
+  top_topics: Array<{ topic: string; count: number }>;
+  volume_trend: Array<{ date: string; count: number }>;
+  time_range: string;
+}
+
+export interface SatisfactionMetrics {
+  csat_trend: Array<{ date: string; avg_csat: number }>;
+  sentiment: {
+    total_with_sentiment: number;
+    avg_sentiment_score: number | null;
+  };
+  response_times: {
+    avg_seconds: number | null;
+    min_seconds: number | null;
+    max_seconds: number | null;
+  };
+  resolution_breakdown: {
+    total: number;
+    resolved: number;
+    escalated: number;
+    resolution_rate: number;
+    escalation_rate: number;
+  };
+}
+
+export interface TopicDistribution {
+  topic: string;
+  count: number;
+  success_rate: number | null;
+  escalation_rate: number | null;
+}
+
+export interface TopicAnalytics {
+  distribution: TopicDistribution[];
+  trends: Array<{ date: string; [topic: string]: string | number }>;
+  time_range: string;
+}
+
+export interface ConversationAnalytics {
+  session_id: string;
+  user_email: string | null;
+  started_at: string;
+  ended_at: string | null;
+  message_count: number;
+  tool_count: number;
+  tools_used: string[] | null;
+  sentiment_score: number | null;
+  csat_score: number | null;
+  resolved: boolean;
+  escalated: boolean;
+  duration_seconds: number | null;
+}
+
+export interface ConversationListResponse {
+  conversations: ConversationAnalytics[];
+  limit: number;
+  offset: number;
+}
+
+export interface SentimentDistribution {
+  distribution: Array<{ sentiment: string; count: number; percentage: number }>;
+  total: number;
+  time_range: string;
+}
+
+export interface ToolUsageStats {
+  tools: Array<{ tool_name: string; count: number; percentage: number }>;
+  total_conversations_with_tools: number;
+  time_range: string;
+}
+
+export interface CsatDistribution {
+  distribution: Array<{ rating: number; count: number; percentage: number }>;
+  total_ratings: number;
+  time_range: string;
+}
+
+export interface TrendData {
+  metric: string;
+  time_range: string;
+  trends: Array<{ date: string; value: number } | { date: string; [key: string]: string | number }>;
+}

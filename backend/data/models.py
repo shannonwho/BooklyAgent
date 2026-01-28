@@ -200,3 +200,56 @@ class SupportTicket(Base):
 
     # Relationships
     customer: Mapped["Customer"] = relationship(back_populates="support_tickets")
+
+
+class AnalyticsEvent(Base):
+    """Individual user interaction events for analytics."""
+    __tablename__ = "analytics_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(50), index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    event_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    def __repr__(self):
+        return f"<AnalyticsEvent(id={self.id}, event_type={self.event_type}, timestamp={self.timestamp})>"
+
+
+class ConversationAnalytics(Base):
+    """Aggregated conversation metrics."""
+    __tablename__ = "conversation_analytics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    user_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    message_count: Mapped[int] = mapped_column(Integer, default=0)
+    tool_count: Mapped[int] = mapped_column(Integer, default=0)
+    tools_used: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    sentiment_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    csat_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    escalated: Mapped[bool] = mapped_column(Boolean, default=False)
+    duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    def __repr__(self):
+        return f"<ConversationAnalytics(session_id={self.session_id}, csat={self.csat_score})>"
+
+
+class TopicAnalytics(Base):
+    """Topic-level aggregations for analytics."""
+    __tablename__ = "topic_analytics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    topic_category: Mapped[str] = mapped_column(String(50), index=True)
+    date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    avg_resolution_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    success_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    escalation_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    def __repr__(self):
+        return f"<TopicAnalytics(topic={self.topic_category}, date={self.date}, count={self.count})>"

@@ -20,9 +20,25 @@ from telemetry import (
     log_conversation,
     record_fallback_event,
 )
+from analytics.event_collector import (
+    track_conversation_start,
+    track_tool_usage,
+    track_sentiment,
+)
 
 # Pattern to extract order numbers from messages
 ORDER_ID_PATTERN = re.compile(r'ORD-\d{4}-\d{5}', re.IGNORECASE)
+
+
+def _safe_debug_log(data: dict):
+    """Safely write debug log without crashing if directory doesn't exist."""
+    try:
+        log_path = '/Users/shannonhu/Documents/Empire/JobInterview/Cursor/BooklyAgent/.cursor/debug.log'
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a') as f:
+            f.write(json.dumps(data) + '\n')
+    except Exception:
+        pass  # Silently fail if logging isn't available
 
 
 # Convert Claude tools format to OpenAI format
@@ -82,6 +98,9 @@ class AgentController:
 
         # Context tracking for multi-turn conversations
         self.current_order_id: Optional[str] = None
+        
+        # Track tools used for analytics
+        self.tools_used: list[str] = []
 
         # Metrics
         self._setup_metrics()
@@ -141,6 +160,9 @@ class AgentController:
         user_email: Optional[str] = None
     ) -> AsyncGenerator[dict, None]:
         """Process a user message and stream the response."""
+        # #region agent log
+        _safe_debug_log({"location":"controller.py:138","message":"process_message called","data":{"session_id":self.session_id,"user_message_length":len(user_message),"user_email":user_email,"has_anthropic":bool(self.anthropic_client),"has_openai":bool(self.openai_client),"active_provider":self.active_provider},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+        # #endregion
         start_time = time.time()
         self.turn_count += 1
         tools_used = []
@@ -173,17 +195,42 @@ class AgentController:
                 message=user_message,
                 metadata={"turn": self.turn_count}
             )
+            
+            # Track conversation start for analytics (only on first message)
+            if self.turn_count == 1 and self.db:
+                try:
+                    await track_conversation_start(self.db, self.session_id, self.user_email)
+                except Exception as e:
+                    self.logger.warning(f"Failed to track conversation start: {e}")
+            
+            # Track sentiment from user message
+            if self.db:
+                try:
+                    await track_sentiment(self.db, self.session_id, user_message)
+                except Exception as e:
+                    self.logger.warning(f"Failed to track sentiment: {e}")
 
             # Try Anthropic first if available and active
             if self.anthropic_client and self.active_provider == "anthropic":
+                # #region agent log
+                _safe_debug_log({"location":"controller.py:178","message":"Processing with Anthropic","data":{"session_id":self.session_id},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+                # #endregion
                 try:
+                    chunk_count = 0
                     async for chunk in self._process_with_anthropic(user_message, span, tools_used):
+                        chunk_count += 1
+                        # #region agent log
+                        _safe_debug_log({"location":"controller.py:180","message":"Yielding chunk from Anthropic","data":{"session_id":self.session_id,"chunk_type":chunk.get("type"),"chunk_count":chunk_count},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"E"})
+                        # #endregion
                         if chunk.get("type") == "content":
                             response_text += chunk.get("content", "")
                         yield chunk
 
                     # Log successful completion
-                    self._log_completion(start_time, response_text, tools_used, "anthropic", span)
+                    # #region agent log
+                    _safe_debug_log({"location":"controller.py:186","message":"Anthropic processing complete","data":{"session_id":self.session_id,"total_chunks":chunk_count,"response_length":len(response_text)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+                    # #endregion
+                    await self._log_completion(start_time, response_text, tools_used, "anthropic", span)
                     return
 
                 except (anthropic.APIStatusError, anthropic.APIError) as e:
@@ -211,13 +258,24 @@ class AgentController:
 
             # Use OpenAI as fallback or primary
             if self.openai_client and self.active_provider == "openai":
+                # #region agent log
+                _safe_debug_log({"location":"controller.py:213","message":"Processing with OpenAI","data":{"session_id":self.session_id},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+                # #endregion
                 try:
+                    chunk_count = 0
                     async for chunk in self._process_with_openai(user_message, span, tools_used):
+                        chunk_count += 1
+                        # #region agent log
+                        _safe_debug_log({"location":"controller.py:215","message":"Yielding chunk from OpenAI","data":{"session_id":self.session_id,"chunk_type":chunk.get("type"),"chunk_count":chunk_count},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"E"})
+                        # #endregion
                         if chunk.get("type") == "content":
                             response_text += chunk.get("content", "")
                         yield chunk
 
-                    self._log_completion(start_time, response_text, tools_used, "openai", span)
+                    # #region agent log
+                    _safe_debug_log({"location":"controller.py:220","message":"OpenAI processing complete","data":{"session_id":self.session_id,"total_chunks":chunk_count,"response_length":len(response_text)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+                    # #endregion
+                    await self._log_completion(start_time, response_text, tools_used, "openai", span)
                     return
 
                 except openai.APIError as e:
@@ -237,10 +295,13 @@ class AgentController:
                     return
 
             # No provider available
+            # #region agent log
+            _safe_debug_log({"location":"controller.py:240","message":"No provider available","data":{"session_id":self.session_id,"has_anthropic":bool(self.anthropic_client),"has_openai":bool(self.openai_client),"active_provider":self.active_provider},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})
+            # #endregion
             span.set_status(Status(StatusCode.ERROR, "No provider available"))
             yield {"type": "error", "content": "No AI provider configured. Please check API keys."}
 
-    def _log_completion(self, start_time: float, response_text: str, tools_used: list, provider: str, span):
+    async def _log_completion(self, start_time: float, response_text: str, tools_used: list, provider: str, span):
         """Log successful message completion."""
         duration_ms = (time.time() - start_time) * 1000
 
@@ -265,6 +326,13 @@ class AgentController:
                 "duration_ms": round(duration_ms, 2),
             }
         )
+        
+        # Track sentiment from agent response
+        if self.db and response_text:
+            try:
+                await track_sentiment(self.db, self.session_id, response_text)
+            except Exception as e:
+                self.logger.warning(f"Failed to track sentiment: {e}")
 
     async def _process_with_anthropic(
         self,
@@ -333,11 +401,20 @@ class AgentController:
             tool_results = []
             for tool_use in tool_uses:
                 tools_used.append(tool_use.name)
+                if tool_use.name not in self.tools_used:
+                    self.tools_used.append(tool_use.name)
                 yield {"type": "tool_use", "tool": tool_use.name}
 
                 if not self.db:
-                    yield {"type": "error", "content": "Database session not available."}
-                    return
+                    error_msg = "Database session not available. Please try again."
+                    self.logger.error(f"Database session missing for tool {tool_use.name}")
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use.id,
+                        "content": json.dumps({"error": error_msg}),
+                    })
+                    yield {"type": "tool_result", "tool": tool_use.name}
+                    continue
 
                 tool_input = dict(tool_use.input) if isinstance(tool_use.input, dict) else {}
 
@@ -352,18 +429,47 @@ class AgentController:
                 elif self.user_email and tool_use.name == "get_order_status" and not tool_input.get("email"):
                     tool_input["email"] = self.user_email
 
-                # Execute tool with tracing
-                with trace_tool_execution(tool_use.name, self.session_id) as tool_tracer:
-                    tool_tracer.set_input(tool_input)
-                    result = await execute_tool(tool_use.name, tool_input, self.db)
-                    tool_tracer.set_output(result)
+                # Execute tool with tracing and comprehensive error handling
+                success = True
+                result = None
+                try:
+                    with trace_tool_execution(tool_use.name, self.session_id) as tool_tracer:
+                        tool_tracer.set_input(tool_input)
+                        try:
+                            result = await execute_tool(tool_use.name, tool_input, self.db)
+                            tool_tracer.set_output(result)
+                            # Check if result indicates error
+                            if isinstance(result, dict) and result.get("error"):
+                                success = False
+                                self.logger.warning(f"Tool {tool_use.name} returned error: {result.get('error')}")
+                        except Exception as e:
+                            success = False
+                            error_msg = f"I encountered an error while {tool_use.name.replace('_', ' ')}. Please try again or rephrase your request."
+                            self.logger.error(f"Tool execution failed for {tool_use.name}: {e}", exc_info=True)
+                            result = {"error": error_msg, "details": str(e)}
+                            tool_tracer.set_output(result)
+                except Exception as e:
+                    # Fallback error handling if tracing fails
+                    success = False
+                    error_msg = f"I encountered an error while {tool_use.name.replace('_', ' ')}. Please try again."
+                    self.logger.error(f"Tool execution failed for {tool_use.name}: {e}", exc_info=True)
+                    result = {"error": error_msg}
+                
+                # Track tool usage for analytics
+                if self.db:
+                    try:
+                        await track_tool_usage(self.db, self.session_id, tool_use.name, success)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to track tool usage: {e}")
 
                 yield {"type": "tool_result", "tool": tool_use.name}
 
+                # Always add result to conversation, even if it's an error
+                # This allows the LLM to handle the error gracefully
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tool_use.id,
-                    "content": json.dumps(result),
+                    "content": json.dumps(result) if result else json.dumps({"error": "Unknown error occurred"}),
                 })
 
             self.conversation_history.append({"role": "user", "content": tool_results})
@@ -462,6 +568,8 @@ class AgentController:
 
                 tool_name = tc["function"]["name"]
                 tools_used.append(tool_name)
+                if tool_name not in self.tools_used:
+                    self.tools_used.append(tool_name)
 
                 try:
                     tool_input = json.loads(tc["function"]["arguments"])
@@ -469,8 +577,15 @@ class AgentController:
                     tool_input = {}
 
                 if not self.db:
-                    yield {"type": "error", "content": "Database session not available."}
-                    return
+                    error_msg = "Database session not available. Please try again."
+                    self.logger.error(f"Database session missing for tool {tool_name}")
+                    self.openai_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": json.dumps({"error": error_msg}),
+                    })
+                    yield {"type": "tool_result", "tool": tool_name}
+                    continue
 
                 # Inject order context if available
                 tool_input = self._inject_order_context(tool_name, tool_input)
@@ -483,17 +598,47 @@ class AgentController:
                 elif self.user_email and tool_name == "get_order_status" and not tool_input.get("email"):
                     tool_input["email"] = self.user_email
 
-                with trace_tool_execution(tool_name, self.session_id) as tool_tracer:
-                    tool_tracer.set_input(tool_input)
-                    result = await execute_tool(tool_name, tool_input, self.db)
-                    tool_tracer.set_output(result)
+                # Execute tool with tracing and comprehensive error handling
+                success = True
+                result = None
+                try:
+                    with trace_tool_execution(tool_name, self.session_id) as tool_tracer:
+                        tool_tracer.set_input(tool_input)
+                        try:
+                            result = await execute_tool(tool_name, tool_input, self.db)
+                            tool_tracer.set_output(result)
+                            # Check if result indicates error
+                            if isinstance(result, dict) and result.get("error"):
+                                success = False
+                                self.logger.warning(f"Tool {tool_name} returned error: {result.get('error')}")
+                        except Exception as e:
+                            success = False
+                            error_msg = f"I encountered an error while {tool_name.replace('_', ' ')}. Please try again or rephrase your request."
+                            self.logger.error(f"Tool execution failed for {tool_name}: {e}", exc_info=True)
+                            result = {"error": error_msg, "details": str(e)}
+                            tool_tracer.set_output(result)
+                except Exception as e:
+                    # Fallback error handling if tracing fails
+                    success = False
+                    error_msg = f"I encountered an error while {tool_name.replace('_', ' ')}. Please try again."
+                    self.logger.error(f"Tool execution failed for {tool_name}: {e}", exc_info=True)
+                    result = {"error": error_msg}
+                
+                # Track tool usage for analytics
+                if self.db:
+                    try:
+                        await track_tool_usage(self.db, self.session_id, tool_name, success)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to track tool usage: {e}")
 
                 yield {"type": "tool_result", "tool": tool_name}
 
+                # Always add result to conversation, even if it's an error
+                # This allows the LLM to handle the error gracefully
                 self.openai_messages.append({
                     "role": "tool",
                     "tool_call_id": tc["id"],
-                    "content": json.dumps(result),
+                    "content": json.dumps(result) if result else json.dumps({"error": "Unknown error occurred"}),
                 })
 
         if len(self.openai_messages) > 21:
@@ -514,3 +659,4 @@ class AgentController:
         self.openai_messages = []
         self.turn_count = 0
         self.current_order_id = None
+        self.tools_used = []

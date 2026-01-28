@@ -14,6 +14,7 @@ import OrderConfirmPage from './pages/OrderConfirmPage';
 import OrderHistoryPage from './pages/OrderHistoryPage';
 import OrderDetailPage from './pages/OrderDetailPage';
 import SupportPage from './pages/SupportPage';
+import AnalyticsDashboardPage from './pages/AnalyticsDashboardPage';
 import ChatWidget from './components/chat/ChatWidget';
 
 // Protected Route component
@@ -45,6 +46,7 @@ function App() {
           <Route path="register" element={<RegisterPage />} />
           <Route path="cart" element={<CartPage />} />
           <Route path="support" element={<SupportPage />} />
+          <Route path="analytics" element={<AnalyticsDashboardPage />} />
 
           {/* Protected routes */}
           <Route

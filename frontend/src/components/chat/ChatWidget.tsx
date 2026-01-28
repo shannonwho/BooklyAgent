@@ -1,11 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Minimize2 } from 'lucide-react';
+import { MessageCircle, X, Send, Minimize2, Star } from 'lucide-react';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
+import { analyticsApi } from '../../services/analytics';
 import clsx from 'clsx';
 
 export default function ChatWidget() {
   const [input, setInput] = useState('');
+  const [showRating, setShowRating] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -14,6 +20,7 @@ export default function ChatWidget() {
     isOpen,
     isTyping,
     isConnected,
+    sessionId,
     toggleChat,
     closeChat,
     sendMessage,
@@ -35,6 +42,62 @@ export default function ChatWidget() {
       connect(isAuthenticated ? user?.email : undefined);
     }
   }, [isOpen, isAuthenticated, user?.email, connect]);
+
+  // Show rating only when chat is closed (user wraps up conversation)
+  useEffect(() => {
+    const hasConversation = messages.some(m => m.role === 'user');
+    const ratingKey = sessionId ? `rating_submitted_${sessionId}` : null;
+    const ratingAlreadyShown = ratingKey ? sessionStorage.getItem(ratingKey) : false;
+    
+    // Show rating when chat is closed if there was a conversation and rating hasn't been shown
+    if (!isOpen && hasConversation && !ratingAlreadyShown && sessionId) {
+      // Only show if we haven't already shown it for this close event
+      if (!showRating) {
+        setShowRating(true);
+      }
+    } else if (isOpen) {
+      // Don't hide rating when reopening - let user complete it if they want
+      // Rating will be hidden when submitted or dismissed
+    }
+  }, [isOpen, messages, showRating, sessionId]);
+
+  const handleRatingSubmit = async () => {
+    if (!rating || !sessionId || submittingRating) return;
+    
+    setSubmittingRating(true);
+    try {
+      await analyticsApi.submitRating(sessionId, rating, ratingComment || undefined);
+      // Mark rating as submitted to prevent showing again
+      const ratingKey = `rating_submitted_${sessionId}`;
+      sessionStorage.setItem(ratingKey, 'true');
+      
+      // Show success state briefly before hiding
+      setRatingSubmitted(true);
+      
+      // Hide rating widget after a short delay to show success message
+      setTimeout(() => {
+        setShowRating(false);
+        setRatingSubmitted(false);
+        setRating(0);
+        setRatingComment('');
+        setSubmittingRating(false);
+      }, 1500);
+    } catch (error) {
+      console.error('Failed to submit rating:', error);
+      setSubmittingRating(false);
+      // Show error message to user
+      alert('Failed to submit rating. Please try again.');
+    }
+  };
+
+  const handleRatingDismiss = () => {
+    // Mark rating as dismissed to prevent showing again
+    if (sessionId) {
+      const ratingKey = `rating_submitted_${sessionId}`;
+      sessionStorage.setItem(ratingKey, 'dismissed');
+    }
+    setShowRating(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,7 +191,77 @@ export default function ChatWidget() {
             </div>
           </div>
         )}
+
       </div>
+
+      {/* Rating Widget - shown when chat is closed */}
+      {showRating && !isOpen && (
+        <div className="fixed bottom-6 right-6 w-96 bg-white rounded-2xl shadow-2xl p-4 z-50 animate-fade-in border-2 border-primary-200">
+          <div className={clsx(
+            "rounded-xl px-4 py-3 transition-colors",
+            ratingSubmitted 
+              ? "bg-green-50 border border-green-200" 
+              : "bg-blue-50 border border-blue-200"
+          )}>
+            {ratingSubmitted ? (
+              <div className="text-center py-2">
+                <p className="text-sm font-medium text-green-700 mb-1">
+                  ✓ Thank you for your feedback!
+                </p>
+                <p className="text-xs text-green-600">
+                  Your rating has been submitted successfully.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-gray-900 mb-2">How was your experience?</p>
+                <div className="flex items-center space-x-1 mb-3">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setRating(star)}
+                      disabled={submittingRating}
+                      className="focus:outline-none disabled:opacity-50"
+                      aria-label={`Rate ${star} stars`}
+                    >
+                      <Star
+                        className={clsx(
+                          'h-6 w-6 transition-colors',
+                          star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+                        )}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={ratingComment}
+                  onChange={(e) => setRatingComment(e.target.value)}
+                  placeholder="Optional feedback..."
+                  disabled={submittingRating}
+                  className="w-full text-sm border border-gray-300 rounded-md px-2 py-1 mb-2 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  rows={2}
+                />
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleRatingSubmit}
+                    disabled={!rating || submittingRating}
+                    className="text-xs bg-primary-600 text-white px-3 py-1 rounded-md hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {submittingRating ? 'Submitting...' : 'Submit'}
+                  </button>
+                  <button
+                    onClick={handleRatingDismiss}
+                    disabled={submittingRating}
+                    className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="p-4 border-t">

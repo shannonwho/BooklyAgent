@@ -190,15 +190,32 @@ USER_PROFILES = [
 ]
 
 
-async def seed_users(session):
-    """Seed the database with user profiles."""
+async def seed_users(session, force: bool = False):
+    """Seed the database with user profiles.
+    
+    Args:
+        session: Database session
+        force: If True, reseed even if users already exist
+    """
     from sqlalchemy import select
+    import os
+
+    # Check if we should force reseed (from environment variable)
+    force_reseed = force or os.getenv("FORCE_RESeed", "").lower() in ("true", "1", "yes")
 
     # Check if users already exist
-    result = await session.execute(select(Customer).limit(1))
-    if result.scalar_one_or_none():
-        print("Users already seeded, skipping...")
-        return
+    if not force_reseed:
+        result = await session.execute(select(Customer).limit(1))
+        if result.scalar_one_or_none():
+            print("Users already seeded, skipping...")
+            print("To force reseed, set FORCE_RESeed=true or use force=True")
+            return
+
+    if force_reseed:
+        print("Force reseeding enabled - clearing existing users...")
+        from sqlalchemy import delete
+        await session.execute(delete(Customer))
+        await session.commit()
 
     print("Creating 10 user profiles...")
     password_hash = get_password_hash(DEMO_PASSWORD)

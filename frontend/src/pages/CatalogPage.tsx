@@ -15,6 +15,8 @@ export default function CatalogPage() {
   const page = parseInt(searchParams.get('page') || '1');
   const genre = searchParams.get('genre') || '';
   const search = searchParams.get('search') || '';
+  const sortBy = searchParams.get('sort_by') || '';
+  const sortOrder = searchParams.get('sort_order') || 'desc';
 
   useEffect(() => {
     async function fetchBooks() {
@@ -25,6 +27,8 @@ export default function CatalogPage() {
           page_size: 20,
           genre: genre || undefined,
           search: search || undefined,
+          sort_by: sortBy || undefined,
+          sort_order: sortOrder || undefined,
         });
         setBooks(response.books);
         setTotal(response.total);
@@ -36,7 +40,7 @@ export default function CatalogPage() {
       }
     }
     fetchBooks();
-  }, [page, genre, search]);
+  }, [page, genre, search, sortBy, sortOrder]);
 
   const updateParams = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams);
@@ -68,12 +72,37 @@ export default function CatalogPage() {
         <select
           value={genre}
           onChange={(e) => updateParams('genre', e.target.value)}
-          className="input w-full md:w-48"
+          className="input w-full md:w-[217px]"
         >
           <option value="">All Genres</option>
           {GENRES.map((g) => (
             <option key={g} value={g}>{g}</option>
           ))}
+        </select>
+        <select
+          value={sortBy ? `${sortBy}_${sortOrder}` : ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (value) {
+              const [by, order] = value.split('_');
+              const params = new URLSearchParams(searchParams);
+              params.set('sort_by', by);
+              params.set('sort_order', order);
+              params.set('page', '1');
+              setSearchParams(params);
+            } else {
+              const params = new URLSearchParams(searchParams);
+              params.delete('sort_by');
+              params.delete('sort_order');
+              params.set('page', '1');
+              setSearchParams(params);
+            }
+          }}
+          className="input w-full md:w-[217px]"
+        >
+          <option value="">Sort by Rating</option>
+          <option value="rating_desc">Rating: High to Low</option>
+          <option value="rating_asc">Rating: Low to High</option>
         </select>
       </div>
 

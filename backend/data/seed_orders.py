@@ -104,16 +104,33 @@ ORDER_CONFIGS = {
 }
 
 
-async def seed_orders(session):
-    """Seed the database with orders."""
-    from sqlalchemy import select
+async def seed_orders(session, force: bool = False):
+    """Seed the database with orders.
+    
+    Args:
+        session: Database session
+        force: If True, reseed even if orders already exist
+    """
+    from sqlalchemy import select, delete
+    import os
     from .models import Customer, Book
 
+    # Check if we should force reseed (from environment variable)
+    force_reseed = force or os.getenv("FORCE_RESeed", "").lower() in ("true", "1", "yes")
+
     # Check if orders already exist
-    result = await session.execute(select(Order).limit(1))
-    if result.scalar_one_or_none():
-        print("Orders already seeded, skipping...")
-        return
+    if not force_reseed:
+        result = await session.execute(select(Order).limit(1))
+        if result.scalar_one_or_none():
+            print("Orders already seeded, skipping...")
+            print("To force reseed, set FORCE_RESeed=true or use force=True")
+            return
+
+    if force_reseed:
+        print("Force reseeding enabled - clearing existing orders...")
+        await session.execute(delete(OrderItem))
+        await session.execute(delete(Order))
+        await session.commit()
 
     # Get all customers
     result = await session.execute(select(Customer))
@@ -239,15 +256,31 @@ async def seed_orders(session):
     print(f"Seeded {order_index - 1} orders successfully!")
 
 
-async def seed_policies(session):
-    """Seed company policies for agent grounding."""
-    from sqlalchemy import select
+async def seed_policies(session, force: bool = False):
+    """Seed company policies for agent grounding.
+    
+    Args:
+        session: Database session
+        force: If True, reseed even if policies already exist
+    """
+    from sqlalchemy import select, delete
+    import os
+
+    # Check if we should force reseed (from environment variable)
+    force_reseed = force or os.getenv("FORCE_RESeed", "").lower() in ("true", "1", "yes")
 
     # Check if policies already exist
-    result = await session.execute(select(Policy).limit(1))
-    if result.scalar_one_or_none():
-        print("Policies already seeded, skipping...")
-        return
+    if not force_reseed:
+        result = await session.execute(select(Policy).limit(1))
+        if result.scalar_one_or_none():
+            print("Policies already seeded, skipping...")
+            print("To force reseed, set FORCE_RESeed=true or use force=True")
+            return
+
+    if force_reseed:
+        print("Force reseeding enabled - clearing existing policies...")
+        await session.execute(delete(Policy))
+        await session.commit()
 
     policies = [
         {

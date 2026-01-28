@@ -9,7 +9,7 @@ from data.seed_books import seed_books
 from data.seed_users import seed_users
 from data.seed_orders import seed_orders, seed_policies
 
-from api import auth, books, cart, orders, profile, websocket
+from api import auth, books, cart, orders, profile, websocket, analytics
 from telemetry import init_telemetry
 from telemetry.config import instrument_app
 
@@ -73,6 +73,7 @@ app.include_router(cart.router, prefix="/api/cart", tags=["Cart"])
 app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(profile.router, prefix="/api/profile", tags=["Profile"])
 app.include_router(websocket.router, tags=["WebSocket"])
+app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 
 @app.get("/")

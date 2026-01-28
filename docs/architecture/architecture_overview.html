@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookly Architecture Overview</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 40px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+        }
+        h3 {
+            color: #7f8c8d;
+            margin-top: 30px;
+        }
+        .mermaid {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .integration-index {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 40px;
+        }
+        .integration-index ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        .integration-index li {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .integration-index li:last-child {
+            border-bottom: none;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <h1>Bookly Architecture Overview</h1>
+    
+    <p>This diagram captures the major components and integration points of Bookly,
+    including REST, WebSocket chat, AI providers, database, and telemetry.</p>
+
+    <div class="mermaid">
+flowchart LR
+  subgraph Frontend[Frontend - React + Vite]
+    FE_Router[App Router]
+    FE_Pages[Pages\nCatalog, Cart, Orders, Profile, Support]
+    FE_Stores[Zustand Stores\nAuth, Cart, Chat]
+    FE_Api[REST Client\nfrontend/src/services/api.ts]
+    FE_WS[WebSocket Client\nfrontend/src/store/chatStore.ts]
+  end
+
+  subgraph Backend[Backend - FastAPI]
+    BE_App[FastAPI App\nbackend/main.py]
+    BE_Auth[Auth API\n/api/auth]
+    BE_Books[Books API\n/api/books]
+    BE_Cart[Cart API\n/api/cart]
+    BE_Orders[Orders API\n/api/orders]
+    BE_Profile[Profile API\n/api/profile]
+    BE_WS[WebSocket\n/ws/chat/{session_id}]
+    BE_Agent[Agent Controller\nbackend/agent/controller.py]
+    BE_Tools[Agent Tools\nbackend/agent/tools.py]
+  end
+
+  subgraph Data[Data Layer]
+    DB[(PostgreSQL)]
+    Models[SQLAlchemy Models\nbackend/data/models.py]
+    Seed[Seed Data\nbackend/data/seed_*.py]
+  end
+
+  subgraph LLMs[LLM Providers]
+    Claude[Anthropic Claude\nANTHROPIC_API_KEY]
+    OpenAI[OpenAI GPT\nOPENAI_API_KEY]
+  end
+
+  subgraph Telemetry[Observability]
+    OTel[OpenTelemetry SDK\nbackend/telemetry/*]
+    DD[Datadog Agent\nOTLP Exporter]
+  end
+
+  FE_Router --> FE_Pages
+  FE_Pages --> FE_Stores
+  FE_Stores --> FE_Api
+  FE_Stores --> FE_WS
+
+  FE_Api -->|HTTP REST| BE_App
+  FE_WS -->|WebSocket| BE_WS
+
+  BE_App --> BE_Auth
+  BE_App --> BE_Books
+  BE_App --> BE_Cart
+  BE_App --> BE_Orders
+  BE_App --> BE_Profile
+  BE_WS --> BE_Agent
+  BE_Agent --> BE_Tools
+
+  BE_Auth --> Models
+  BE_Books --> Models
+  BE_Cart --> Models
+  BE_Orders --> Models
+  BE_Profile --> Models
+  BE_Tools --> Models
+
+  Models --> DB
+  Seed --> DB
+
+  BE_Agent --> Claude
+  BE_Agent --> OpenAI
+
+  BE_App --> OTel
+  BE_Agent --> OTel
+  OTel --> DD
+    </div>
+
+    <h2>Core Flows</h2>
+
+    <h3>1) Authentication (Login + JWT)</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (React)
+  participant API as Backend /api/auth
+  participant DB as PostgreSQL
+
+  FE->>API: POST /api/auth/login (email, password)
+  API->>DB: SELECT customer by email
+  DB-->>API: customer + password_hash
+  API-->>FE: access_token + user profile
+  FE->>FE: store token in localStorage
+  FE->>API: GET /api/auth/me (Authorization: Bearer ...)
+  API->>DB: SELECT customer
+  DB-->>API: customer
+  API-->>FE: current user
+    </div>
+
+    <h3>2) Browse Catalog (Books + Filters)</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Catalog Page)
+  participant API as Backend /api/books
+  participant DB as PostgreSQL
+
+  FE->>API: GET /api/books?genre&search&page&page_size
+  API->>DB: SELECT books with filters + pagination
+  DB-->>API: books list + total count
+  API-->>FE: BookListResponse
+  FE->>FE: render catalog grid
+    </div>
+
+    <h3>3) Cart Management</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Cart)
+  participant API as Backend /api/cart
+  participant DB as PostgreSQL
+
+  FE->>API: POST /api/cart/add (book_id, quantity)
+  API->>DB: SELECT book + check stock
+  API->>DB: UPSERT cart item
+  DB-->>API: cart items
+  API-->>FE: CartResponse
+  FE->>API: PUT /api/cart/{item_id} (quantity)
+  API->>DB: UPDATE/DELETE cart item
+  API-->>FE: CartResponse
+    </div>
+
+    <h3>4) Checkout → Order Creation</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Checkout)
+  participant API as Backend /api/orders
+  participant DB as PostgreSQL
+
+  FE->>API: POST /api/orders/checkout (shipping_address, method)
+  API->>DB: SELECT cart items + stock check
+  API->>DB: CREATE order + order_items
+  API->>DB: UPDATE book stock
+  API->>DB: DELETE cart items
+  DB-->>API: order info
+  API-->>FE: CheckoutResponse (order_number, total, ETA)
+    </div>
+
+    <h3>5) Order History + Detail</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Orders)
+  participant API as Backend /api/orders
+  participant DB as PostgreSQL
+
+  FE->>API: GET /api/orders
+  API->>DB: SELECT orders + items
+  DB-->>API: orders list
+  API-->>FE: OrderListResponse
+  FE->>API: GET /api/orders/{id}
+  API->>DB: SELECT order + items
+  DB-->>API: order detail
+  API-->>FE: OrderResponse
+    </div>
+
+    <h3>6) Profile Updates</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Profile)
+  participant API as Backend /api/profile
+  participant DB as PostgreSQL
+
+  FE->>API: GET /api/profile
+  API->>DB: SELECT customer
+  DB-->>API: customer
+  API-->>FE: ProfileResponse
+  FE->>API: PUT /api/profile (name, phone, genres, address)
+  API->>DB: UPDATE customer
+  DB-->>API: updated customer
+  API-->>FE: ProfileResponse
+    </div>
+
+    <h3>7) Support Chat (WebSocket + Agent Tool Loop)</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Chat UI)
+  participant WS as Backend WebSocket
+  participant Agent as AgentController
+  participant Tools as Tool Executor
+  participant DB as PostgreSQL
+  participant LLM as LLM Provider
+
+  FE->>WS: Connect ws://.../ws/chat/{session_id}
+  WS-->>FE: connected + welcome
+  FE->>WS: message {content, user_email}
+  WS->>Agent: process_message()
+  Agent->>LLM: stream response with tools
+  LLM-->>Agent: tool_use blocks
+  Agent->>Tools: execute_tool(tool_name, input)
+  Tools->>DB: queries or writes
+  DB-->>Tools: results
+  Tools-->>Agent: tool_result
+  Agent->>LLM: continue with tool results
+  LLM-->>Agent: final text
+  Agent-->>WS: stream content chunks
+  WS-->>FE: stream + message_complete
+    </div>
+
+    <h3>8) Agent Return Flow (Tool‑Based)</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant FE as Frontend (Chat)
+  participant WS as WebSocket
+  participant Agent as AgentController
+  participant Tools as Agent Tools
+  participant DB as PostgreSQL
+
+  FE->>WS: "I want to return my order ORD-..."
+  WS->>Agent: process_message()
+  Agent->>Tools: initiate_return(order_id, reason, email)
+  Tools->>DB: verify order + status + email
+  DB-->>Tools: order + customer
+  Tools-->>Agent: return result
+  Agent-->>WS: stream response
+    </div>
+
+    <h3>9) Telemetry (Tracing + Metrics)</h3>
+    <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant App as FastAPI/Agent
+  participant OTel as OpenTelemetry SDK
+  participant DD as Datadog Agent
+
+  App->>OTel: spans + metrics
+  OTel->>DD: OTLP export (HTTP)
+  DD-->>OTel: ack
+    </div>
+
+    <div class="integration-index">
+        <h2>Integration Point Index</h2>
+        <ul>
+            <li><strong>REST:</strong> <code>frontend/src/services/api.ts</code> ⇄ <code>backend/api/*.py</code></li>
+            <li><strong>WebSocket:</strong> <code>frontend/src/store/chatStore.ts</code> ⇄ <code>backend/api/websocket.py</code></li>
+            <li><strong>Agent:</strong> <code>backend/agent/controller.py</code>, <code>backend/agent/tools.py</code>, <code>backend/agent/prompts.py</code></li>
+            <li><strong>DB:</strong> <code>backend/data/database.py</code>, <code>backend/data/models.py</code>, <code>backend/data/seed_*.py</code></li>
+            <li><strong>Telemetry:</strong> <code>backend/telemetry/*</code>, <code>docker-compose.yml</code> (datadog-agent)</li>
+        </ul>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            },
+            sequence: {
+                diagramMarginX: 50,
+                diagramMarginY: 10,
+                actorMargin: 50,
+                width: 150,
+                height: 65,
+                boxMargin: 10,
+                boxTextMargin: 5,
+                noteMargin: 10,
+                messageMargin: 35,
+                mirrorActors: true,
+                bottomMarginAdj: 1,
+                useMaxWidth: true,
+                rightAngles: false,
+                showSequenceNumbers: true
+            }
+        });
+    </script>
+</body>
+</html>
