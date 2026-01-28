@@ -33,13 +33,22 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # Seed data if database is empty
-    async with AsyncSessionLocal() as session:
-        await seed_books(session, count=500)
-        await seed_users(session)
-        await seed_orders(session)
-        await seed_policies(session)
-
-    print("Database initialized and seeded!")
+    try:
+        async with AsyncSessionLocal() as session:
+            print("Seeding books...")
+            await seed_books(session, count=500)
+            print("Seeding users...")
+            await seed_users(session)
+            print("Seeding orders...")
+            await seed_orders(session)
+            print("Seeding policies...")
+            await seed_policies(session)
+            print("Database initialized and seeded!")
+    except Exception as e:
+        print(f"Error seeding database: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
     yield
 
@@ -72,8 +81,8 @@ app.include_router(books.router, prefix="/api/books", tags=["Books"])
 app.include_router(cart.router, prefix="/api/cart", tags=["Cart"])
 app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(profile.router, prefix="/api/profile", tags=["Profile"])
-app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(websocket.router, tags=["WebSocket"])
 
 
 @app.get("/")

@@ -8,7 +8,7 @@ from datetime import datetime
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, SpanKind
 
-from .config import get_tracer, get_logger, get_meter
+from .config import get_tracer, get_logger, get_meter, is_telemetry_enabled
 
 
 # Custom semantic conventions for LLM operations
@@ -151,6 +151,19 @@ def trace_llm_call(
 
 def trace_tool_execution(tool_name: str, session_id: str):
     """Context manager to trace tool execution."""
+    # Return no-op context manager if telemetry is disabled
+    if not is_telemetry_enabled():
+        class NoOpToolTracer:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def set_input(self, tool_input: Dict[str, Any]):
+                pass
+            def set_output(self, tool_output: Dict[str, Any]):
+                pass
+        return NoOpToolTracer()
+    
     class ToolTracer:
         def __init__(self):
             self.tracer = get_tracer()
@@ -248,6 +261,10 @@ def log_conversation(
     metadata: Optional[Dict[str, Any]] = None
 ):
     """Log conversation events for offline evaluation."""
+    # Skip all work if telemetry is disabled
+    if not is_telemetry_enabled():
+        return {}
+    
     logger = get_logger()
     tracer = get_tracer()
     meter = get_meter()
@@ -338,6 +355,10 @@ def record_fallback_event(
     reason: str
 ):
     """Record when fallback between providers occurs."""
+    # Skip all work if telemetry is disabled
+    if not is_telemetry_enabled():
+        return
+    
     logger = get_logger()
     meter = get_meter()
 

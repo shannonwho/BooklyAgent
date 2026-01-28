@@ -3,6 +3,8 @@ import os
 import json
 import time
 import re
+import asyncio
+from contextlib import nullcontext
 from typing import AsyncGenerator, Optional, Literal
 import anthropic
 import openai
@@ -19,12 +21,14 @@ from telemetry import (
     trace_tool_execution,
     log_conversation,
     record_fallback_event,
+    is_telemetry_enabled,
 )
 from analytics.event_collector import (
     track_conversation_start,
     track_tool_usage,
     track_sentiment,
 )
+from data.database import AsyncSessionLocal
 
 # Pattern to extract order numbers from messages
 ORDER_ID_PATTERN = re.compile(r'ORD-\d{4}-\d{5}', re.IGNORECASE)
@@ -107,6 +111,19 @@ class AgentController:
 
     def _setup_metrics(self):
         """Set up telemetry metrics."""
+        # Skip metric creation if telemetry is disabled
+        if not is_telemetry_enabled():
+            # Create no-op metrics
+            class NoOpMetric:
+                def add(self, *args, **kwargs):
+                    pass
+                def record(self, *args, **kwargs):
+                    pass
+            self.message_counter = NoOpMetric()
+            self.response_latency = NoOpMetric()
+            self.token_counter = NoOpMetric()
+            return
+        
         self.message_counter = self.meter.create_counter(
             "agent.messages.total",
             description="Total messages processed by the agent",
@@ -177,11 +194,26 @@ class AgentController:
         if extracted_order_id:
             self.current_order_id = extracted_order_id
 
-        # Create parent span for entire conversation turn
-        with self.tracer.start_as_current_span(
-            "agent.process_message",
-            kind=SpanKind.SERVER,
-        ) as span:
+        # Create parent span for entire conversation turn (no-op if telemetry disabled)
+        if is_telemetry_enabled():
+            span_context = self.tracer.start_as_current_span(
+                "agent.process_message",
+                kind=SpanKind.SERVER,
+            )
+        else:
+            # Use nullcontext to create a no-op context manager
+            class NoOpSpan:
+                def set_attribute(self, *args, **kwargs):
+                    pass
+                def set_status(self, *args, **kwargs):
+                    pass
+                def add_event(self, *args, **kwargs):
+                    pass
+                def record_exception(self, *args, **kwargs):
+                    pass
+            span_context = nullcontext(NoOpSpan())
+        
+        with span_context as span:
             span.set_attribute("session.id", self.session_id)
             span.set_attribute("conversation.turn", self.turn_count)
             span.set_attribute("user.email", self.user_email or "anonymous")
@@ -196,19 +228,24 @@ class AgentController:
                 metadata={"turn": self.turn_count}
             )
             
-            # Track conversation start for analytics (only on first message)
-            if self.turn_count == 1 and self.db:
-                try:
-                    await track_conversation_start(self.db, self.session_id, self.user_email)
-                except Exception as e:
-                    self.logger.warning(f"Failed to track conversation start: {e}")
+            # Track conversation start for analytics (only on first message) - non-blocking
+            if self.turn_count == 1:
+                async def track_start():
+                    try:
+                        async with AsyncSessionLocal() as db:
+                            await track_conversation_start(db, self.session_id, self.user_email)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to track conversation start: {e}")
+                asyncio.create_task(track_start())
             
-            # Track sentiment from user message
-            if self.db:
+            # Track sentiment from user message - non-blocking
+            async def track_user_sentiment():
                 try:
-                    await track_sentiment(self.db, self.session_id, user_message)
+                    async with AsyncSessionLocal() as db:
+                        await track_sentiment(db, self.session_id, user_message)
                 except Exception as e:
                     self.logger.warning(f"Failed to track sentiment: {e}")
+            asyncio.create_task(track_user_sentiment())
 
             # Try Anthropic first if available and active
             if self.anthropic_client and self.active_provider == "anthropic":
@@ -327,12 +364,15 @@ class AgentController:
             }
         )
         
-        # Track sentiment from agent response
-        if self.db and response_text:
-            try:
-                await track_sentiment(self.db, self.session_id, response_text)
-            except Exception as e:
-                self.logger.warning(f"Failed to track sentiment: {e}")
+        # Track sentiment from agent response - non-blocking
+        if response_text:
+            async def track_agent_sentiment():
+                try:
+                    async with AsyncSessionLocal() as db:
+                        await track_sentiment(db, self.session_id, response_text)
+                except Exception as e:
+                    self.logger.warning(f"Failed to track sentiment: {e}")
+            asyncio.create_task(track_agent_sentiment())
 
     async def _process_with_anthropic(
         self,
@@ -455,12 +495,14 @@ class AgentController:
                     self.logger.error(f"Tool execution failed for {tool_use.name}: {e}", exc_info=True)
                     result = {"error": error_msg}
                 
-                # Track tool usage for analytics
-                if self.db:
+                # Track tool usage for analytics - non-blocking
+                async def track_tool():
                     try:
-                        await track_tool_usage(self.db, self.session_id, tool_use.name, success)
+                        async with AsyncSessionLocal() as db:
+                            await track_tool_usage(db, self.session_id, tool_use.name, success)
                     except Exception as e:
                         self.logger.warning(f"Failed to track tool usage: {e}")
+                asyncio.create_task(track_tool())
 
                 yield {"type": "tool_result", "tool": tool_use.name}
 
@@ -624,12 +666,14 @@ class AgentController:
                     self.logger.error(f"Tool execution failed for {tool_name}: {e}", exc_info=True)
                     result = {"error": error_msg}
                 
-                # Track tool usage for analytics
-                if self.db:
+                # Track tool usage for analytics - non-blocking
+                async def track_tool():
                     try:
-                        await track_tool_usage(self.db, self.session_id, tool_name, success)
+                        async with AsyncSessionLocal() as db:
+                            await track_tool_usage(db, self.session_id, tool_name, success)
                     except Exception as e:
                         self.logger.warning(f"Failed to track tool usage: {e}")
+                asyncio.create_task(track_tool())
 
                 yield {"type": "tool_result", "tool": tool_name}
 

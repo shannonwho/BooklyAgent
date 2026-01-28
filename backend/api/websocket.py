@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from data.database import get_db, AsyncSessionLocal
 from agent.controller import AgentController
-from analytics.event_collector import track_conversation_end, track_event
 
 router = APIRouter()
 
@@ -29,51 +28,9 @@ class ConnectionManager:
         # Create agent for this session (without db session - will be created per message)
         self.agents[session_id] = AgentController(session_id)
         self.session_users[session_id] = None
-        
-        # Track chat widget opened
-        try:
-            async with AsyncSessionLocal() as db:
-                await track_event(
-                    db,
-                    event_type="chat_widget_opened",
-                    session_id=session_id,
-                    user_email=self.session_users.get(session_id)
-                )
-        except Exception:
-            pass  # Don't fail connection if tracking fails
 
-    async def disconnect(self, session_id: str):
+    def disconnect(self, session_id: str):
         """Remove a disconnected client."""
-        # Track conversation end before cleanup
-        try:
-            async with AsyncSessionLocal() as db:
-                agent = self.agents.get(session_id)
-                escalated = False
-                if agent and agent.turn_count > 0:
-                    # Check if any support tickets were created (escalation indicator)
-                    # This is a simplified check - in production you'd query the database
-                    # Check tools_used from conversation history
-                    tools_used = getattr(agent, 'tools_used', [])
-                    if isinstance(tools_used, list):
-                        escalated = "create_support_ticket" in tools_used
-                    elif hasattr(agent, 'conversation_history'):
-                        # Fallback: check conversation history for ticket creation
-                        history = agent.conversation_history or []
-                        escalated = any(
-                            isinstance(msg, dict) and msg.get("role") == "assistant" 
-                            and "create_support_ticket" in str(msg.get("content", ""))
-                            for msg in history
-                        )
-                
-                await track_conversation_end(
-                    db,
-                    session_id,
-                    resolved=not escalated,
-                    escalated=escalated
-                )
-        except Exception:
-            pass  # Don't fail disconnect if tracking fails
-        
         if session_id in self.active_connections:
             del self.active_connections[session_id]
         if session_id in self.agents:
@@ -331,7 +288,7 @@ async def websocket_endpoint(
                 })
 
     except WebSocketDisconnect:
-        await manager.disconnect(session_id)
+        manager.disconnect(session_id)
     except Exception as e:
         print(f"WebSocket error: {e}")
-        await manager.disconnect(session_id)
+        manager.disconnect(session_id)

@@ -12,6 +12,7 @@ export default function ChatWidget() {
   const [ratingComment, setRatingComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [ratingError, setRatingError] = useState<string | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -64,7 +65,10 @@ export default function ChatWidget() {
   const handleRatingSubmit = async () => {
     if (!rating || !sessionId || submittingRating) return;
     
+    // Clear any previous errors
+    setRatingError(null);
     setSubmittingRating(true);
+    
     try {
       await analyticsApi.submitRating(sessionId, rating, ratingComment || undefined);
       // Mark rating as submitted to prevent showing again
@@ -81,12 +85,19 @@ export default function ChatWidget() {
         setRating(0);
         setRatingComment('');
         setSubmittingRating(false);
+        setRatingError(null);
       }, 1500);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to submit rating:', error);
       setSubmittingRating(false);
-      // Show error message to user
-      alert('Failed to submit rating. Please try again.');
+      
+      // Extract error message
+      const errorMessage = error?.response?.data?.detail 
+        || error?.response?.data?.message 
+        || error?.message 
+        || 'Failed to submit rating. Please try again.';
+      
+      setRatingError(errorMessage);
     }
   };
 
@@ -97,6 +108,9 @@ export default function ChatWidget() {
       sessionStorage.setItem(ratingKey, 'dismissed');
     }
     setShowRating(false);
+    setRatingError(null);
+    setRating(0);
+    setRatingComment('');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -201,6 +215,8 @@ export default function ChatWidget() {
             "rounded-xl px-4 py-3 transition-colors",
             ratingSubmitted 
               ? "bg-green-50 border border-green-200" 
+              : ratingError
+              ? "bg-red-50 border border-red-200"
               : "bg-blue-50 border border-blue-200"
           )}>
             {ratingSubmitted ? (
@@ -215,11 +231,19 @@ export default function ChatWidget() {
             ) : (
               <>
                 <p className="text-sm font-medium text-gray-900 mb-2">How was your experience?</p>
+                {ratingError && (
+                  <div className="mb-2 p-2 bg-red-100 border border-red-300 rounded-md">
+                    <p className="text-xs text-red-700">{ratingError}</p>
+                  </div>
+                )}
                 <div className="flex items-center space-x-1 mb-3">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
-                      onClick={() => setRating(star)}
+                      onClick={() => {
+                        setRating(star);
+                        setRatingError(null); // Clear error when user selects a rating
+                      }}
                       disabled={submittingRating}
                       className="focus:outline-none disabled:opacity-50"
                       aria-label={`Rate ${star} stars`}
@@ -235,7 +259,10 @@ export default function ChatWidget() {
                 </div>
                 <textarea
                   value={ratingComment}
-                  onChange={(e) => setRatingComment(e.target.value)}
+                  onChange={(e) => {
+                    setRatingComment(e.target.value);
+                    setRatingError(null); // Clear error when user types
+                  }}
                   placeholder="Optional feedback..."
                   disabled={submittingRating}
                   className="w-full text-sm border border-gray-300 rounded-md px-2 py-1 mb-2 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"

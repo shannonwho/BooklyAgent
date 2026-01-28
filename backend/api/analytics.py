@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import selectinload
@@ -15,6 +16,13 @@ from data.models import (
 )
 
 router = APIRouter()
+
+
+class RatingRequest(BaseModel):
+    """Request model for submitting a CSAT rating."""
+    session_id: str
+    rating: int
+    comment: Optional[str] = None
 
 
 def parse_time_range(time_range: str) -> tuple[datetime, datetime]:
@@ -523,18 +531,16 @@ async def get_csat_distribution(
 
 @router.post("/rating")
 async def submit_rating(
-    session_id: str,
-    rating: int,
-    comment: Optional[str] = None,
+    request: RatingRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Submit a CSAT rating for a conversation."""
     from analytics.event_collector import track_rating
     
-    if rating < 1 or rating > 5:
+    if request.rating < 1 or request.rating > 5:
         raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
     
-    await track_rating(db, session_id, rating, comment)
+    await track_rating(db, request.session_id, request.rating, request.comment)
     
     return {
         "success": True,

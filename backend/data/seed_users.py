@@ -205,11 +205,20 @@ async def seed_users(session, force: bool = False):
 
     # Check if users already exist
     if not force_reseed:
-        result = await session.execute(select(Customer).limit(1))
-        if result.scalar_one_or_none():
-            print("Users already seeded, skipping...")
-            print("To force reseed, set FORCE_RESeed=true or use force=True")
-            return
+        try:
+            from sqlalchemy import func
+            result = await session.execute(select(func.count(Customer.id)))
+            user_count = result.scalar() or 0
+            if user_count > 0:
+                print(f"Found {user_count} existing users, skipping seed...")
+                print("To force reseed, set FORCE_RESeed=true or use force=True")
+                return
+            else:
+                print(f"No users found in database (count: {user_count}), proceeding with seed...")
+        except Exception as e:
+            print(f"Error checking for existing users: {e}")
+            print("Proceeding with seed anyway...")
+            # Continue with seeding if check fails
 
     if force_reseed:
         print("Force reseeding enabled - clearing existing users...")
@@ -218,18 +227,25 @@ async def seed_users(session, force: bool = False):
         await session.commit()
 
     print("Creating 10 user profiles...")
-    password_hash = get_password_hash(DEMO_PASSWORD)
+    try:
+        password_hash = get_password_hash(DEMO_PASSWORD)
 
-    for profile in USER_PROFILES:
-        # Remove description (not a model field)
-        profile_data = {k: v for k, v in profile.items() if k != "description"}
-        profile_data["password_hash"] = password_hash
+        for profile in USER_PROFILES:
+            # Remove description (not a model field)
+            profile_data = {k: v for k, v in profile.items() if k != "description"}
+            profile_data["password_hash"] = password_hash
 
-        customer = Customer(**profile_data)
-        session.add(customer)
+            customer = Customer(**profile_data)
+            session.add(customer)
 
-    await session.commit()
-    print("Seeded 10 user profiles successfully!")
+        await session.commit()
+        print("Seeded 10 user profiles successfully!")
+    except Exception as e:
+        await session.rollback()
+        print(f"Error seeding users: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 def get_user_profiles_info():

@@ -262,11 +262,20 @@ async def seed_books(session, count: int = 500, force: bool = False):
 
     # Check if books already exist
     if not force_reseed:
-        result = await session.execute(select(Book).limit(1))
-        if result.scalar_one_or_none():
-            print("Books already seeded, skipping...")
-            print("To force reseed, set FORCE_RESeed=true or use force=True")
-            return
+        try:
+            from sqlalchemy import func
+            result = await session.execute(select(func.count(Book.id)))
+            book_count = result.scalar() or 0
+            if book_count > 0:
+                print(f"Found {book_count} existing books, skipping seed...")
+                print("To force reseed, set FORCE_RESeed=true or use force=True")
+                return
+            else:
+                print(f"No books found in database (count: {book_count}), proceeding with seed...")
+        except Exception as e:
+            print(f"Error checking for existing books: {e}")
+            print("Proceeding with seed anyway...")
+            # Continue with seeding if check fails
 
     if force_reseed:
         print("Force reseeding enabled - clearing existing books...")
@@ -275,11 +284,18 @@ async def seed_books(session, count: int = 500, force: bool = False):
         await session.commit()
 
     print(f"Generating {count} books...")
-    books_data = generate_books(count)
+    try:
+        books_data = generate_books(count)
 
-    for book_data in books_data:
-        book = Book(**book_data)
-        session.add(book)
+        for book_data in books_data:
+            book = Book(**book_data)
+            session.add(book)
 
-    await session.commit()
-    print(f"Seeded {count} books successfully!")
+        await session.commit()
+        print(f"Seeded {count} books successfully!")
+    except Exception as e:
+        await session.rollback()
+        print(f"Error seeding books: {e}")
+        import traceback
+        traceback.print_exc()
+        raise

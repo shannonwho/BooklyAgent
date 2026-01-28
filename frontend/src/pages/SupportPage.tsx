@@ -12,7 +12,6 @@ export default function SupportPage() {
     isTyping: isLoading,
     sessionId,
     connect,
-    disconnect,
     sendMessage,
   } = useChatStore();
   const { user, isAuthenticated } = useAuthStore();
@@ -26,16 +25,10 @@ export default function SupportPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7245/ingest/5ad02f70-438a-49a8-8c46-39e994f7e605',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SupportPage.tsx:20',message:'SupportPage useEffect connect',data:{isAuthenticated,userEmail:user?.email},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
+    // Connect when component mounts or user changes
+    // Don't disconnect on unmount - let the connection persist across navigation
+    // The ChatWidget also uses the same connection, so we shouldn't close it
     connect(isAuthenticated ? user?.email : undefined);
-    return () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7245/ingest/5ad02f70-438a-49a8-8c46-39e994f7e605',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'SupportPage.tsx:23',message:'SupportPage cleanup disconnect',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
-      disconnect();
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user?.email]);
 

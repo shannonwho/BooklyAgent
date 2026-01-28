@@ -20,6 +20,7 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 _tracer: Optional[trace.Tracer] = None
 _meter: Optional[metrics.Meter] = None
 _logger: Optional[logging.Logger] = None
+_telemetry_enabled: bool = True
 
 
 def init_telemetry(
@@ -28,7 +29,25 @@ def init_telemetry(
     environment: str = "development"
 ) -> None:
     """Initialize OpenTelemetry with OTLP exporter (via Datadog Agent)."""
-    global _tracer, _meter, _logger
+    global _tracer, _meter, _logger, _telemetry_enabled
+
+    # Check if telemetry is disabled
+    disable_telemetry = os.getenv("DISABLE_TELEMETRY", "").lower() in ("true", "1", "yes")
+    if disable_telemetry:
+        _telemetry_enabled = False
+        print("Telemetry: DISABLED (DISABLE_TELEMETRY=true)")
+        # Set up minimal no-op instances
+        _logger = logging.getLogger("bookly.agent")
+        _logger.setLevel(logging.INFO)
+        if not _logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            ))
+            _logger.addHandler(handler)
+        return
+
+    _telemetry_enabled = True
 
     # Get OTLP endpoint from environment (typically points to Datadog Agent)
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
@@ -93,6 +112,12 @@ def init_telemetry(
 
 def instrument_app(app, engine=None):
     """Instrument FastAPI app and database engine."""
+    global _telemetry_enabled
+    
+    if not _telemetry_enabled:
+        print("Telemetry: Skipping instrumentation (telemetry disabled)")
+        return
+
     # Instrument FastAPI
     FastAPIInstrumentor.instrument_app(app)
 
@@ -106,19 +131,25 @@ def instrument_app(app, engine=None):
     print("Telemetry: FastAPI, SQLAlchemy, and HTTPX instrumented")
 
 
+def is_telemetry_enabled() -> bool:
+    """Check if telemetry is enabled."""
+    global _telemetry_enabled
+    return _telemetry_enabled
+
+
 def get_tracer() -> trace.Tracer:
     """Get the configured tracer."""
-    global _tracer
-    if _tracer is None:
-        # Return a no-op tracer if not initialized
+    global _tracer, _telemetry_enabled
+    if not _telemetry_enabled or _tracer is None:
+        # Return a no-op tracer if telemetry is disabled or not initialized
         return trace.get_tracer("bookly-support-agent")
     return _tracer
 
 
 def get_meter() -> metrics.Meter:
     """Get the configured meter."""
-    global _meter
-    if _meter is None:
+    global _meter, _telemetry_enabled
+    if not _telemetry_enabled or _meter is None:
         return metrics.get_meter("bookly-support-agent")
     return _meter
 
